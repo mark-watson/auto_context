@@ -1,3 +1,25 @@
+#
+# This script defines the AutoContext class, a tool for Retrieval-Augmented
+# Generation (RAG). It automatically finds relevant text from a collection
+# of documents to provide context for answering user queries.
+#
+# The class works by:
+# 1. Loading text files from a specified directory.
+# 2. Splitting the text into manageable chunks (paragraphs).
+# 3. Creating two search indexes:
+#    - A BM25 index for fast, keyword-based search (sparse retrieval).
+#    - A vector index using sentence embeddings for semantic search (dense retrieval).
+# 4. Combining the results from both indexes to retrieve the most relevant context.
+#
+# This hybrid search approach ensures that the context is both lexically and
+# semantically related to the user's query, improving the quality of the
+# generated response from a large language model.
+#
+# Usage:
+# with AutoContext("path/to/your/documents") as context:
+#     prompt = context.get_prompt("Your question here")
+#     # Use this prompt with your favorite LLM
+
 import os
 import pathlib
 import numpy as np
@@ -21,9 +43,25 @@ class AutoContext:
     """
 
     def __enter__(self):
+        """Enter the runtime context for the AutoContext object.
+        
+        Returns:
+            AutoContext: Returns self to be used in a 'with' statement.
+        """
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the runtime context for the AutoContext object.
+        
+        This method currently does nothing but is included to complete
+        the context manager protocol. It could be extended to perform
+        cleanup operations if needed in the future.
+        
+        Args:
+            exc_type: Exception type if an exception was raised.
+            exc_value: Exception value if an exception was raised.
+            traceback: Traceback if an exception was raised.
+        """
         pass
 
     def __init__(self, directory_path: str, model_name: str = 'all-MiniLM-L6-v2'):
@@ -136,4 +174,5 @@ class AutoContext:
         )
 
         return final_prompt
+
 
