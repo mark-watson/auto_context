@@ -20,7 +20,7 @@ if __name__ == '__main__':
     # Retrieve relevant context for the query (limiting to 3 results)
     second_prompt = auto_context.get_prompt(second_query, num_results=3)
     # Display the generated prompt for the chemistry question
-    print("\n\n\n\n--- Generated Prompt for ATalk about glassware used in chemistry---")
+    print("\n\n\n\n--- Generated Prompt for Talk about glassware used in chemistry ---")
     print(second_prompt)
 
     # Test query 3: Health/psychology related question
