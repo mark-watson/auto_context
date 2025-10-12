@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
         second_query = "Talk about glassware used in chemistry"
         second_prompt = auto_context.get_prompt(second_query, num_results=3)
-        print("\n\n\n\n--- Generated Prompt for ATalk about glassware used in chemistry---")
+        print("\n\n\n\n--- Generated Prompt for Talk about glassware used in chemistry ---")
         print(second_prompt)
 
         third_query = "Talk about not liking open spaces"
