@@ -106,6 +106,3 @@ Retrieves relevant context and formats it into a prompt for an LLM.
 ## Model
 
 By default, AutoContext uses the `all-MiniLM-L6-v2` model, which provides a good balance between speed and accuracy. You can specify a different SentenceTransformer model during initialization if needed.
-```
-
-This documentation provides a comprehensive overview of the AutoContext project, including its features, how it works, installation instructions, usage examples, and API reference. It should help users understand and effectively use the AutoContext library.
