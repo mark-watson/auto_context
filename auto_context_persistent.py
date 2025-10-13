@@ -8,7 +8,7 @@
 # NOTE: This requires the 'chromadb' package to be installed.
 # You can install it with: pip install chromadb
 #
-import os
+import hashlib
 import pathlib
 import sys
 from rank_bm25 import BM25Okapi
@@ -19,7 +19,6 @@ from sentence_transformers import SentenceTransformer
 
 # chromadb imports
 import chromadb
-from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 
 
@@ -40,17 +39,9 @@ class AutoContextPersistent:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        """Ensure Chroma client persists any in-memory state on exit."""
-        try:
-            if hasattr(self, "client") and self.client is not None:
-                # Persist any pending changes to disk
-                try:
-                    self.client.persist()
-                except Exception:
-                    # Some chromadb backends persist automatically; ignore errors here.
-                    pass
-        except Exception:
-            pass
+        """This method is kept for compatibility but does nothing, as
+        modern ChromaDB versions handle persistence automatically."""
+        pass
 
     def __init__(
         self,
@@ -115,40 +106,53 @@ class AutoContextPersistent:
         self.bm25 = BM25Okapi(tokenized_chunks)
 
         # --- Build Persistent Dense Retriever (Chroma) ---
-        # Configure Chroma to use a duckdb+parquet backend and persist to disk.
-        os.makedirs(self.persist_directory, exist_ok=True)
-        settings = Settings(chroma_db_impl="duckdb+parquet", persist_directory=self.persist_directory)
-        self.client = chromadb.Client(settings=settings)
+        # Initialize the persistent Chroma client.
+        self.client = chromadb.PersistentClient(path=self.persist_directory)
 
-        # Use Chroma's SentenceTransformer wrapper so Chroma can compute embeddings
-        # on add/query if desired. We still keep a local SentenceTransformer instance
-        # for any direct embedding usage.
+        # Use Chroma's SentenceTransformer wrapper.
         embedding_func = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
 
-        # Create or get existing collection
-        existing_collections = {c["name"] for c in self.client.list_collections()}
-        if self.collection_name in existing_collections:
-            self.collection = self.client.get_collection(name=self.collection_name)
-        else:
-            self.collection = self.client.create_collection(
-                name=self.collection_name, embedding_function=embedding_func
-            )
+        # Get or create the collection.
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection_name, embedding_function=embedding_func
+        )
 
-        # If the collection is empty, add documents (Chroma will compute embeddings).
-        try:
-            count = self.collection.count()
-        except Exception:
-            # Older/newer chromadb versions may not have count(); fallback to checking retrieval
-            count = 0
+        # --- Synchronize Documents ---
+        # Create content-addressable IDs for current chunks.
+        current_chunk_ids = {
+            hashlib.sha256(chunk.encode("utf-8")).hexdigest() for chunk in self.chunks
+        }
+        
+        # Get existing IDs from the collection.
+        # Note: .get() with no IDs returns all items.
+        existing_items = self.collection.get()
+        existing_chunk_ids = set(existing_items["ids"])
 
-        if count == 0:
-            ids = [f"chunk_{i}" for i in range(len(self.chunks))]
-            # Add documents without precomputing embeddings; collection.embedding_function will handle it
-            self.collection.add(documents=self.chunks, ids=ids)
-            try:
-                self.client.persist()
-            except Exception:
-                pass
+        # Determine which chunks to add or remove.
+        ids_to_add = current_chunk_ids - existing_chunk_ids
+        ids_to_remove = existing_chunk_ids - current_chunk_ids
+
+        # Add new chunks to the collection.
+        if ids_to_add:
+            chunks_to_add = [
+                chunk
+                for chunk in self.chunks
+                if hashlib.sha256(chunk.encode("utf-8")).hexdigest() in ids_to_add
+            ]
+            new_ids = [
+                hashlib.sha256(chunk.encode("utf-8")).hexdigest()
+                for chunk in chunks_to_add
+            ]
+            self.collection.add(documents=chunks_to_add, ids=new_ids)
+            print(f"Added {len(ids_to_add)} new chunks to the collection.")
+
+        # Remove stale chunks from the collection.
+        if ids_to_remove:
+            self.collection.delete(ids=list(ids_to_remove))
+            print(f"Removed {len(ids_to_remove)} stale chunks from the collection.")
+
+        if not ids_to_add and not ids_to_remove:
+            print("Chroma collection is already up-to-date.")
 
     def get_prompt(self, query: str, num_results: int = 5) -> str:
         """
@@ -172,20 +176,9 @@ class AutoContextPersistent:
         print(f"BM25 found {len(bm25_results)} keyword-based results.")
 
         # --- 2. Dense Search (Chroma) ---
-        try:
-            results = self.collection.query(query_texts=[query], n_results=num_results)
-            # results['documents'] is a list-of-lists: one list per query
-            vector_results = results.get("documents", [[]])[0]
-        except Exception:
-            # Fallback: if query_texts is not supported in this chromadb version,
-            # try computing embeddings locally and querying by embedding.
-            try:
-                embedding_model = SentenceTransformer(os.environ.get("AUTOCTX_MODEL", "all-MiniLM-L6-v2"))
-                query_emb = embedding_model.encode([query], show_progress_bar=False, normalize_embeddings=True)[0]
-                results = self.collection.query(query_embeddings=[query_emb], n_results=num_results)
-                vector_results = results.get("documents", [[]])[0]
-            except Exception:
-                vector_results = []
+        results = self.collection.query(query_texts=[query], n_results=num_results)
+        # results['documents'] is a list-of-lists: one list per query
+        vector_results = results.get("documents", [[]])[0]
         print(f"Chroma vector search found {len(vector_results)} semantic-based results.")
 
         # --- 3. Hybridization: Combine and deduplicate results ---

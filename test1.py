@@ -1,9 +1,9 @@
-from auto_context import AutoContext
+from auto_context_persistent import AutoContextPersistent
 
 if __name__ == '__main__':
     # Initialize the AutoContext system with the data directory
     print("\n--- Initializing AutoContext... ---")
-    auto_context = AutoContext(directory_path="../data")
+    auto_context = AutoContextPersistent(directory_path="data")
 
     # Test query 1: Economics related question
     my_query = "who said the study of economics is bullshit?"

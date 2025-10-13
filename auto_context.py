@@ -64,15 +64,19 @@ class AutoContext:
         """
         pass
 
-    def __init__(self, directory_path: str, model_name: str = 'all-MiniLM-L6-v2'):
+    def __init__(self, directory_path: str, model_name: str = 'all-MiniLM-L6-v2', cache_dir: str = ".cache"):
         """
         Initializes the AutoContext object.
 
         Args:
             directory_path (str): The path to the directory containing .txt documents.
             model_name (str): The name of the SentenceTransformer model to use for embeddings.
+            cache_dir (str): The directory to store cached sentence embeddings.
         """
         self._is_initialized = False
+        self.cache_dir = pathlib.Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
         # --- 1. Load and Chunk Documents ---
         self.chunks = self._load_and_chunk_documents(directory_path)
         if not self.chunks:
@@ -114,14 +118,37 @@ class AutoContext:
         self.bm25 = BM25Okapi(tokenized_chunks)
 
         # --- Build Dense Retriever (SentenceTransformer + NumPy) ---
-        # Using SentenceTransformer as it's highly effective for this task.
-        # This will download the model on the first run.
-        self.embedding_model = SentenceTransformer(model_name)
-        self.chunk_embeddings = self.embedding_model.encode(
-            self.chunks, 
-            show_progress_bar=True,
-            normalize_embeddings=True # Normalize for cosine similarity
-        )
+        # Define cache paths
+        embeddings_cache_path = self.cache_dir / f"{model_name.replace('/', '_')}_embeddings.npy"
+        chunk_count_path = self.cache_dir / "chunk_count.txt"
+
+        # Check for cached embeddings
+        cache_valid = False
+        if embeddings_cache_path.exists() and chunk_count_path.exists():
+            with open(chunk_count_path, 'r') as f:
+                cached_chunk_count = int(f.read())
+            if cached_chunk_count == len(self.chunks):
+                print(f"Loading cached embeddings from {embeddings_cache_path}...")
+                self.chunk_embeddings = np.load(embeddings_cache_path)
+                cache_valid = True
+            else:
+                print("Document change detected, re-generating embeddings.")
+
+        if not cache_valid:
+            print("Generating and caching new embeddings...")
+            self.embedding_model = SentenceTransformer(model_name)
+            self.chunk_embeddings = self.embedding_model.encode(
+                self.chunks, 
+                show_progress_bar=True,
+                normalize_embeddings=True # Normalize for cosine similarity
+            )
+            np.save(embeddings_cache_path, self.chunk_embeddings)
+            with open(chunk_count_path, 'w') as f:
+                f.write(str(len(self.chunks)))
+        
+        # We only need the model for encoding the query, so we can load it here if it wasn't loaded for embedding generation.
+        if not hasattr(self, 'embedding_model'):
+            self.embedding_model = SentenceTransformer(model_name)
 
     def get_prompt(self, query: str, num_results: int = 5) -> str:
         """
