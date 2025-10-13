@@ -9,3 +9,4 @@ venv
 .aider*
 __pycache__
 chroma_db
+auto_context.egg-info

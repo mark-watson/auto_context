@@ -1,7 +1,8 @@
 [project]
 name = "auto_context"
 version = "0.1.0"
-description = "Add your description here"
+description = "ACreate prompts from a user query and knowledge source of corpus of text"
+authors = [{ name = "Mark Watson", email = "markw@markwatson.com" }]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,3 +14,10 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "sentence-transformers>=5.1.1",
 ]
+
+[tool.setuptools]
+py-modules = ["auto_context"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
