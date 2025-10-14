@@ -13,7 +13,12 @@ This project provides one implementation:
 
 Add using:
 
+    uv init
     uv add git+https://github.com/mark-watson/auto_context.git 
+    uv run python3
+    >>> import auto_context
+    >>> from auto_context import AutoContextPersistent
+
     
 ## Features
 

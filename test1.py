@@ -1,4 +1,4 @@
-from auto_context_persistent import AutoContextPersistent
+from auto_context import AutoContextPersistent
 
 if __name__ == '__main__':
     # Initialize the AutoContext system with the data directory
