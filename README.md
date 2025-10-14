@@ -9,6 +9,12 @@ AutoContext is an intelligent context retriever designed for Retrieval-Augmented
 This project provides one implementation:
 - **AutoContextPersistent**: A persistent context retriever that uses ChromaDB to store embeddings.
 
+## Use in other projects
+
+Add using:
+
+    uv add git+https://github.com/mark-watson/AutoContext.py.git
+    
 ## Features
 
 - **Hybrid Search**: Combines both keyword-based (BM25) and semantic (vector) search methods for more comprehensive retrieval.
