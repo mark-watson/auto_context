@@ -1,8 +1,8 @@
-from auto_context import AutoContext
+from auto_context import AutoContextPersistent
 
 if __name__ == '__main__':
     print("\n--- Initializing AutoContext... ---")
-    with AutoContext(directory_path="data") as auto_context:
+    with AutoContextPersistent(directory_path="data") as auto_context:
 
         my_query = "who said the study of economics is bullshit?"
     
