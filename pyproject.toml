@@ -1,7 +1,7 @@
 [project]
 name = "auto_context"
 version = "0.1.0"
-description = "ACreate prompts from a user query and knowledge source of corpus of text"
+description = "Create prompts from a user query and knowledge source of corpus of text"
 authors = [{ name = "Mark Watson", email = "markw@markwatson.com" }]
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["auto_context"]
+py-modules = ["auto_context.py"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

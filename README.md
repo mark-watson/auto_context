@@ -13,7 +13,7 @@ This project provides one implementation:
 
 Add using:
 
-    uv add git+https://github.com/mark-watson/AutoContext.py.git
+    uv add git+https://github.com/mark-watson/auto_context.git 
     
 ## Features
 
