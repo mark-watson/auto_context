@@ -1,6 +1,6 @@
 [project]
 name = "auto-context"
-version = "0.1.0"
+version = "0.1.1"
 description = "Create prompts from a user query and knowledge source of corpus of text"
 authors = [{ name = "Mark Watson", email = "markw@markwatson.com" }]
 readme = "README.md"
