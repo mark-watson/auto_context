@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["auto_context.py"]
+py-modules = ["auto_context_persistent.py"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
