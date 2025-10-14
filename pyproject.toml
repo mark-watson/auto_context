@@ -1,12 +1,12 @@
 [project]
 name = "auto-context"
-version = "0.1.1"
+version = "0.1.3"
 description = "Create prompts from a user query and knowledge source of corpus of text"
 authors = [{ name = "Mark Watson", email = "markw@markwatson.com" }]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "chromadb>=1.1.2",
+    "chromadb>=1.1.1",
     "langchain>=0.3.27",
     "langchain-community>=0.3.31",
     "numpy>=2.3.3",
