@@ -11,6 +11,7 @@
 import hashlib
 import pathlib
 import sys
+from typing import List, Dict, Set, Optional, Any
 from rank_bm25 import BM25Okapi
 
 # Optional imports for compatibility with environments that already
@@ -34,11 +35,11 @@ class AutoContextPersistent:
     - Keeps BM25 sparse retriever in-memory for keyword search.
     """
 
-    def __enter__(self):
+    def __enter__(self) -> "AutoContextPersistent":
         """Enter the runtime context for the AutoContextPersistent object."""
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type: Optional[type], exc_value: Optional[Exception], traceback: Optional[Any]) -> None:
         """This method is kept for compatibility but does nothing, as
         modern ChromaDB versions handle persistence automatically."""
         pass
@@ -49,7 +50,7 @@ class AutoContextPersistent:
         model_name: str = "all-MiniLM-L6-v2",
         persist_directory: str = "./chroma_db",
         collection_name: str = "autocontext",
-    ):
+    ) -> None:
         """
         Initializes the AutoContextPersistent object.
 
@@ -59,9 +60,13 @@ class AutoContextPersistent:
             persist_directory (str): Directory where Chroma will persist data.
             collection_name (str): Name of the Chroma collection to create/use.
         """
-        self._is_initialized = False
-        self.persist_directory = persist_directory
-        self.collection_name = collection_name
+        self._is_initialized: bool = False
+        self.persist_directory: str = persist_directory
+        self.collection_name: str = collection_name
+        self.chunks: List[str] = []
+        self.bm25: Optional[BM25Okapi] = None
+        self.client: Optional[chromadb.PersistentClient] = None
+        self.collection: Optional[chromadb.Collection] = None
 
         # --- 1. Load and Chunk Documents ---
         self.chunks = self._load_and_chunk_documents(directory_path)
@@ -78,9 +83,9 @@ class AutoContextPersistent:
 
         self._is_initialized = True
 
-    def _load_and_chunk_documents(self, directory_path: str) -> list[str]:
+    def _load_and_chunk_documents(self, directory_path: str) -> List[str]:
         """Loads .txt files and splits them into chunks (paragraphs)."""
-        chunks = []
+        chunks: List[str] = []
         p = pathlib.Path(directory_path)
         if not p.is_dir():
             print(f"Error: Directory not found at {directory_path}", file=sys.stderr)
@@ -99,7 +104,7 @@ class AutoContextPersistent:
         print(f"Loaded {len(chunks)} text chunks from {len(list(p.glob('*.txt')))} files.")
         return chunks
 
-    def _build_retrievers(self, model_name: str):
+    def _build_retrievers(self, model_name: str) -> None:
         """Creates the BM25 sparse index and a persistent Chroma dense index."""
         # --- Build Sparse Retriever (BM25) ---
         tokenized_chunks = [chunk.lower().split() for chunk in self.chunks]
@@ -119,27 +124,27 @@ class AutoContextPersistent:
 
         # --- Synchronize Documents ---
         # Create content-addressable IDs for current chunks.
-        current_chunk_ids = {
+        current_chunk_ids: Set[str] = {
             hashlib.sha256(chunk.encode("utf-8")).hexdigest() for chunk in self.chunks
         }
         
         # Get existing IDs from the collection.
         # Note: .get() with no IDs returns all items.
         existing_items = self.collection.get()
-        existing_chunk_ids = set(existing_items["ids"])
+        existing_chunk_ids: Set[str] = set(existing_items["ids"])
 
         # Determine which chunks to add or remove.
-        ids_to_add = current_chunk_ids - existing_chunk_ids
-        ids_to_remove = existing_chunk_ids - current_chunk_ids
+        ids_to_add: Set[str] = current_chunk_ids - existing_chunk_ids
+        ids_to_remove: Set[str] = existing_chunk_ids - current_chunk_ids
 
         # Add new chunks to the collection.
         if ids_to_add:
-            chunks_to_add = [
+            chunks_to_add: List[str] = [
                 chunk
                 for chunk in self.chunks
                 if hashlib.sha256(chunk.encode("utf-8")).hexdigest() in ids_to_add
             ]
-            new_ids = [
+            new_ids: List[str] = [
                 hashlib.sha256(chunk.encode("utf-8")).hexdigest()
                 for chunk in chunks_to_add
             ]
@@ -172,25 +177,25 @@ class AutoContextPersistent:
 
         # --- 1. Sparse Search (BM25) ---
         tokenized_query = query.lower().split()
-        bm25_results = self.bm25.get_top_n(tokenized_query, self.chunks, n=num_results)
+        bm25_results: List[str] = self.bm25.get_top_n(tokenized_query, self.chunks, n=num_results)
         print(f"BM25 found {len(bm25_results)} keyword-based results.")
 
         # --- 2. Dense Search (Chroma) ---
         results = self.collection.query(query_texts=[query], n_results=num_results)
         # results['documents'] is a list-of-lists: one list per query
-        vector_results = results.get("documents", [[]])[0]
+        vector_results: List[str] = results.get("documents", [[]])[0]
         print(f"Chroma vector search found {len(vector_results)} semantic-based results.")
 
         # --- 3. Hybridization: Combine and deduplicate results ---
-        combined_results = bm25_results + vector_results
+        combined_results: List[str] = bm25_results + vector_results
         # Use a dictionary to maintain order while removing duplicates
-        unique_results = list(dict.fromkeys(combined_results))
+        unique_results: List[str] = list(dict.fromkeys(combined_results))
         print(f"Combined and deduplicated, we have {len(unique_results)} context chunks.")
 
         # --- 4. Format the final prompt ---
-        context_str = "\n\n---\n\n".join(unique_results)
+        context_str: str = "\n\n---\n\n".join(unique_results)
 
-        final_prompt = (
+        final_prompt: str = (
             "Based on the following context, please answer the question.\n\n"
             "--- CONTEXT ---\n"
             f"{context_str}\n"
