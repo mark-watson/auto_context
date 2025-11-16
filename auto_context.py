@@ -11,14 +11,10 @@
 import hashlib
 import pathlib
 import sys
+import logging
+import re
 from typing import List, Dict, Set, Optional, Any
 from rank_bm25 import BM25Okapi
-
-# Optional imports for compatibility with environments that already
-# have sentence-transformers installed (declared in pyproject.toml).
-from sentence_transformers import SentenceTransformer
-
-# chromadb imports
 import chromadb
 from chromadb.utils import embedding_functions
 
@@ -64,54 +60,58 @@ class AutoContextPersistent:
         self.persist_directory: str = persist_directory
         self.collection_name: str = collection_name
         self.chunks: List[str] = []
+        self.metadatas: List[Dict[str, Any]] = []
         self.bm25: Optional[BM25Okapi] = None
         self.client: Optional[chromadb.PersistentClient] = None
         self.collection: Optional[chromadb.Collection] = None
+        self.logger = logging.getLogger(__name__)
 
         # --- 1. Load and Chunk Documents ---
         self.chunks = self._load_and_chunk_documents(directory_path)
         if not self.chunks:
-            print(
-                "Heads up: No text chunks found. The directory might be empty or have no .txt files."
-            )
+            self.logger.warning("No text chunks found. The directory might be empty or have no .txt files.")
             return
 
         # --- 2. Build Retrievers ---
-        print("Building search indexes (BM25 and persistent Chroma vector store)...")
+        self.logger.info("Building search indexes (BM25 and persistent Chroma vector store)...")
         self._build_retrievers(model_name)
-        print("All set! AutoContextPersistent is ready to go.")
+        self.logger.info("AutoContextPersistent is ready.")
 
         self._is_initialized = True
 
     def _load_and_chunk_documents(self, directory_path: str) -> List[str]:
         """Loads .txt files and splits them into chunks (paragraphs)."""
         chunks: List[str] = []
+        self.metadatas = []
         p = pathlib.Path(directory_path)
         if not p.is_dir():
-            print(f"Error: Directory not found at {directory_path}", file=sys.stderr)
+            self.logger.error(f"Directory not found at {directory_path}")
             return chunks
-
         for file_path in p.glob("*.txt"):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                    # Split by paragraph and filter out empty strings
                     paragraphs = [para.strip() for para in content.split("\n\n") if para.strip()]
-                    chunks.extend(paragraphs)
+                    for idx, para in enumerate(paragraphs):
+                        chunks.append(para)
+                        self.metadatas.append({"file": file_path.name, "paragraph_index": idx})
             except Exception as e:
-                print(f"Error reading file {file_path}: {e}", file=sys.stderr)
-
-        print(f"Loaded {len(chunks)} text chunks from {len(list(p.glob('*.txt')))} files.")
+                self.logger.error(f"Error reading file {file_path}: {e}")
+        self.logger.info(f"Loaded {len(chunks)} text chunks from {len(list(p.glob('*.txt')))} files.")
         return chunks
+
+    def _tokenize(self, text: str) -> List[str]:
+        return re.findall(r"[a-z0-9]+", text.lower())
 
     def _build_retrievers(self, model_name: str) -> None:
         """Creates the BM25 sparse index and a persistent Chroma dense index."""
         # --- Build Sparse Retriever (BM25) ---
-        tokenized_chunks = [chunk.lower().split() for chunk in self.chunks]
+        tokenized_chunks = [self._tokenize(chunk) for chunk in self.chunks]
         self.bm25 = BM25Okapi(tokenized_chunks)
 
         # --- Build Persistent Dense Retriever (Chroma) ---
         # Initialize the persistent Chroma client.
+        pathlib.Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(path=self.persist_directory)
 
         # Use Chroma's SentenceTransformer wrapper.
@@ -121,7 +121,8 @@ class AutoContextPersistent:
         self.collection = self.client.get_or_create_collection(
             name=self.collection_name, embedding_function=embedding_func
         )
-
+        all_ids = [hashlib.sha256(chunk.encode("utf-8")).hexdigest() for chunk in self.chunks]
+        id_to_meta = dict(zip(all_ids, self.metadatas))
         # --- Synchronize Documents ---
         # Create content-addressable IDs for current chunks.
         current_chunk_ids: Set[str] = {
@@ -148,16 +149,17 @@ class AutoContextPersistent:
                 hashlib.sha256(chunk.encode("utf-8")).hexdigest()
                 for chunk in chunks_to_add
             ]
-            self.collection.add(documents=chunks_to_add, ids=new_ids)
-            print(f"Added {len(ids_to_add)} new chunks to the collection.")
+            metadatas_to_add: List[Dict[str, Any]] = [id_to_meta[i] for i in new_ids]
+            self.collection.add(documents=chunks_to_add, ids=new_ids, metadatas=metadatas_to_add)
+            self.logger.info(f"Added {len(ids_to_add)} new chunks to the collection.")
 
         # Remove stale chunks from the collection.
         if ids_to_remove:
             self.collection.delete(ids=list(ids_to_remove))
-            print(f"Removed {len(ids_to_remove)} stale chunks from the collection.")
+            self.logger.info(f"Removed {len(ids_to_remove)} stale chunks from the collection.")
 
         if not ids_to_add and not ids_to_remove:
-            print("Chroma collection is already up-to-date.")
+            self.logger.info("Chroma collection is already up-to-date.")
 
     def get_prompt(self, query: str, num_results: int = 5) -> str:
         """
@@ -173,28 +175,37 @@ class AutoContextPersistent:
         if not self._is_initialized:
             return f"AutoContextPersistent not properly initialized. No context available.\n\nQuery: {query}"
 
-        print(f"\n--- Retrieving context for query: '{query}' ---")
-
-        # --- 1. Sparse Search (BM25) ---
-        tokenized_query = query.lower().split()
-        bm25_results: List[str] = self.bm25.get_top_n(tokenized_query, self.chunks, n=num_results)
-        print(f"BM25 found {len(bm25_results)} keyword-based results.")
-
-        # --- 2. Dense Search (Chroma) ---
-        results = self.collection.query(query_texts=[query], n_results=num_results)
-        # results['documents'] is a list-of-lists: one list per query
-        vector_results: List[str] = results.get("documents", [[]])[0]
-        print(f"Chroma vector search found {len(vector_results)} semantic-based results.")
-
-        # --- 3. Hybridization: Combine and deduplicate results ---
-        combined_results: List[str] = bm25_results + vector_results
-        # Use a dictionary to maintain order while removing duplicates
-        unique_results: List[str] = list(dict.fromkeys(combined_results))
-        print(f"Combined and deduplicated, we have {len(unique_results)} context chunks.")
-
-        # --- 4. Format the final prompt ---
-        context_str: str = "\n\n---\n\n".join(unique_results)
-
+        self.logger.info(f"Retrieving context for query: '{query}'")
+        if self.bm25 is None or self.collection is None or not self.chunks:
+            return f"AutoContextPersistent not properly initialized. No context available.\n\nQuery: {query}"
+        tokenized_query = self._tokenize(query)
+        all_scores = self.bm25.get_scores(tokenized_query)
+        top_bm25_idx = sorted(range(len(all_scores)), key=lambda i: all_scores[i], reverse=True)[:num_results]
+        bm25_texts = [self.chunks[i] for i in top_bm25_idx]
+        bm25_vals = [all_scores[i] for i in top_bm25_idx]
+        self.logger.info(f"BM25 found {len(bm25_texts)} keyword-based results.")
+        results = self.collection.query(query_texts=[query], n_results=num_results, include=["documents","distances"])
+        vector_texts: List[str] = results.get("documents", [[]])[0]
+        vector_dists = results.get("distances", [[]])[0]
+        self.logger.info(f"Chroma vector search found {len(vector_texts)} semantic-based results.")
+        def norm(vals: List[float]) -> List[float]:
+            if not vals:
+                return []
+            vmin, vmax = min(vals), max(vals)
+            if vmax == vmin:
+                return [0.0 for _ in vals]
+            return [(v - vmin) / (vmax - vmin) for v in vals]
+        bm25_norm = norm(bm25_vals)
+        vec_sims = [1.0 / (1.0 + d) for d in vector_dists] if vector_dists else []
+        vec_norm = norm(vec_sims)
+        scores = {}
+        alpha = 0.5
+        for t, s in zip(bm25_texts, bm25_norm):
+            scores[t] = max(scores.get(t, 0.0), alpha * s)
+        for t, s in zip(vector_texts, vec_norm):
+            scores[t] = max(scores.get(t, 0.0), (1 - alpha) * s)
+        ranked = [t for t, _ in sorted(scores.items(), key=lambda x: x[1], reverse=True)][:num_results]
+        context_str: str = "\n\n---\n\n".join(ranked)
         final_prompt: str = (
             "Based on the following context, please answer the question.\n\n"
             "--- CONTEXT ---\n"
@@ -203,5 +214,4 @@ class AutoContextPersistent:
             f"Question: {query}\n"
             "Answer:"
         )
-
         return final_prompt
