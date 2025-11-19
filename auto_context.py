@@ -62,7 +62,7 @@ class AutoContextPersistent:
         self.chunks: List[str] = []
         self.metadatas: List[Dict[str, Any]] = []
         self.bm25: Optional[BM25Okapi] = None
-        self.client: Optional[chromadb.PersistentClient] = None
+        self.client: Optional[chromadb.ClientAPI] = None
         self.collection: Optional[chromadb.Collection] = None
         self.logger = logging.getLogger(__name__)
 
